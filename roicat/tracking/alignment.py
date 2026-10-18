@@ -2478,7 +2478,14 @@ class DISK_LightGlue(ImageRegistrationMethod):
         device: str = 'cpu',
         verbose: bool = False,
     ):
-        import kornia
+        ## Kornia 0.8.3 scripts an epipolar metric at import time. This API
+        ## deprecation does not affect DISK/LightGlue; keep other warnings.
+        with warnings.catch_warnings():
+            warnings.filterwarnings(
+                'ignore', message=r'`torch\.jit\.script` is deprecated\..*',
+                category=FutureWarning, module=r'torch\.jit\._script',
+            )
+            import kornia
 
         super().__init__(device=device, verbose=verbose)
         self.verbose = verbose

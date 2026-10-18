@@ -858,7 +858,19 @@ class ROInet_embedder(util.ROICaT_Module):
         with open(paths_networkFiles['params']) as f:
             self.params_model = json.load(f)
             print(f"Loaded params_model from {paths_networkFiles['params']}") if self._verbose else None
-            self.net = model.make_model(fwd_version=forward_pass_version, **self.params_model)
+            ## Older, hash-verified network bundles use torchvision's legacy
+            ## pretrained=True API. Keep their model code and weights intact;
+            ## silence only its two known API notices during construction.
+            with warnings.catch_warnings():
+                warnings.filterwarnings(
+                    'ignore', message="The parameter 'pretrained' is deprecated.*",
+                    category=UserWarning, module=r'torchvision\.models\._utils',
+                )
+                warnings.filterwarnings(
+                    'ignore', message="Arguments other than a weight enum or `None` for 'weights' are deprecated.*",
+                    category=UserWarning, module=r'torchvision\.models\._utils',
+                )
+                self.net = model.make_model(fwd_version=forward_pass_version, **self.params_model)
             print(f"Generated network using params_model") if self._verbose else None
 
         ## Prep network and load state_dict
@@ -1897,4 +1909,3 @@ class dataset_simCLR(Dataset):
             X_sample_transformed = self.tile_channels(self.X[idx_sample], dim=-3)
 
         return X_sample_transformed, y_sample, idx_sample, sample_weight
-    

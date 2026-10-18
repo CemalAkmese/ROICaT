@@ -122,16 +122,22 @@ class Test_RichFile_ROICaT:
             'sparse': scipy.sparse.random_array((50, 50), density=0.1, format='csr', dtype=np.float32),
             'scalar': 3.14,
             'nested': {'a': np.array([1, 2, 3]), 'b': 'hello'},
+            'json_list': util.JSON_List([3, 8]),
+            'json_dict': util.JSON_Dict({'session': 7}),
         }
         path = str(tmp_path / 'test.richfile.zip')
         util.RichFile_ROICaT(path=path, backend='zip').save(obj=test_data, overwrite=True)
-        loaded = util.RichFile_ROICaT(path=path).load()
+        with warnings.catch_warnings():
+            warnings.filterwarnings('error', message="Field 'versions_supported' is empty.*")
+            loaded = util.RichFile_ROICaT(path=path).load()
 
         assert np.allclose(loaded['array'], test_data['array'])
         assert np.allclose(loaded['sparse'].toarray(), test_data['sparse'].toarray())
         assert loaded['scalar'] == test_data['scalar']
         assert np.array_equal(loaded['nested']['a'], test_data['nested']['a'])
         assert loaded['nested']['b'] == test_data['nested']['b']
+        assert loaded['json_list'] == [3, 8]
+        assert loaded['json_dict'] == {'session': 7}
 
     def test_directory_roundtrip(self, tmp_path):
         """Save and load with directory backend should preserve all types."""
@@ -269,6 +275,35 @@ class Test_RichFile_ROICaT:
 ######################################################################################################################################
 ############################################################ HELPERS #################################################################
 ######################################################################################################################################
+
+
+def test_matlab_save_nested_field_names(tmp_path):
+    import scipy.io
+
+    values = np.array([[2, 7, 13], [19, 29, 41]])
+    data = {'results_all': {'0': {1: values, 'valid_name': values + 100},
+                            '_hidden': values + 200, 'bad-name': values + 300}}
+    path = str(tmp_path / 'results.mat')
+    with warnings.catch_warnings():
+        warnings.simplefilter('error')
+        helpers.matlab_save(data, path)
+    loaded = scipy.io.loadmat(path, simplify_cells=True)['results_all']
+    assert set(loaded) == {'key_0', 'key__hidden', 'bad_name'}
+    assert set(loaded['key_0']) == {'key_1', 'valid_name'}
+    np.testing.assert_array_equal(loaded['key_0']['key_1'], values)
+    np.testing.assert_array_equal(loaded['key_0']['valid_name'], values + 100)
+    np.testing.assert_array_equal(loaded['key__hidden'], values + 200)
+    np.testing.assert_array_equal(loaded['bad_name'], values + 300)
+    assert '0' in data['results_all']  # Saving must not rename the input keys.
+
+
+@pytest.mark.parametrize('fields', [{'0': 1, 'key_0': 2}, {0: 1, '0': 2},
+                                  {'bad-name': 1, 'bad_name': 2}])
+def test_matlab_save_field_name_collision(tmp_path, fields):
+    path = tmp_path / 'collision.mat'
+    with pytest.raises(ValueError, match='MATLAB field name collision'):
+        helpers.matlab_save({'nested': fields}, str(path))
+    assert not path.exists()
 
 
 class Test_Equivalence_checker:
@@ -2277,10 +2312,15 @@ class TestSequentialHungarianThreshCost:
         clusterer, _, session_bool = _make_synthetic_clusterer(
             n_sessions=4, n_rois_per_session=20, seed=42,
         )
-        clusterer.make_pruned_similarity_graphs(
-            mixing_params=dict(self.MIXING_PARAMS),
-            d_cutoff=0.35,
-        )
+        with warnings.catch_warnings():
+            warnings.simplefilter('error', scipy.sparse.SparseEfficiencyWarning)
+            clusterer.make_pruned_similarity_graphs(
+                mixing_params=dict(self.MIXING_PARAMS),
+                d_cutoff=0.35,
+            )
+        expected = clusterer.dConj.toarray()
+        expected[expected >= 0.35] = 0
+        np.testing.assert_allclose(clusterer.dConj_pruned.toarray(), expected)
         ## bool, not the helper's float64: fit_sequentialHungarian indexes ROI ranges
         ## with `session_bool.sum(0)`.
         session_bool = session_bool.astype(bool)

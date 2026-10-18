@@ -1454,7 +1454,13 @@ class RichFile_ROICaT(rf.RichFile):
             },
         ] + [t.get_property_dict() for t in roicat_module_tds] + [sparse_conv_dict]
 
-        [self.register_type_from_dict(d) for d in type_dicts]
+        for d in type_dicts:
+            ## RichFile's [] means unrestricted versions, but archive loading
+            ## warns about it. An empty Packaging specifier expresses the same
+            ## policy explicitly, without disabling the other load checks.
+            if d['versions_supported'] == []:
+                d['versions_supported'] = ['']
+            self.register_type_from_dict(d)
         
 
 ######################################

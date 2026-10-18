@@ -1981,6 +1981,14 @@ def matlab_save(
     object arrays, and converting None to np.nan.
     RH 2023
 
+    Dictionary keys at every dictionary level are converted to strings, with
+    characters outside ASCII letters, digits, and underscores replaced by
+    underscores. Names not beginning with an ASCII letter are prefixed with
+    ``key_`` (e.g., ``0`` becomes ``key_0``). Valid names are unchanged.
+    If two keys in the same dictionary map to the same name, a ``ValueError``
+    is raised before writing rather than silently overwriting a value.
+    SciPy's field length limits still apply; names are not truncated.
+
     Args:
         obj (Dict): 
             The data to save. This must be in dictionary format.
@@ -2015,11 +2023,25 @@ def matlab_save(
 
     """
     import numpy as np
+    import re
 
     prepare_filepath_for_saving(filepath, mkdir=mkdir, allow_overwrite=allow_overwrite)
 
     def walk(d, fn):
-        return {key: fn(val) if isinstance(val, dict)==False else walk(val, fn) for key, val in d.items()}
+        out = {}
+        original_keys = {}
+        for key, val in d.items():
+            name = re.sub(r'[^a-zA-Z0-9_]', '_', str(key))
+            if not name or not name[0].isascii() or not name[0].isalpha():
+                name = 'key_' + name
+            if name in out:
+                raise ValueError(
+                    f'MATLAB field name collision: {original_keys[name]!r} and '
+                    f'{key!r} both map to {name!r}.'
+                )
+            original_keys[name] = key
+            out[name] = walk(val, fn) if isinstance(val, dict) else fn(val)
+        return out
     
     fn_clean_string = (lambda x: x.encode('utf-8') if isinstance(x, str) and clean_string else x) if clean_string else (lambda x: x)
     fn_list_to_objArray = (lambda x: np.array(x, dtype=object) if isinstance(x, list) and list_to_objArray else x) if list_to_objArray else (lambda x: x)

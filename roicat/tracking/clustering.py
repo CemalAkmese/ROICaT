@@ -1713,10 +1713,16 @@ class Clusterer(util.ROICaT_Module):
             import scipy.sparse
             if s is None:
                 return None
-            s_pruned = scipy.sparse.csr_array(graph_pruned.shape, dtype=np.float32)
-            s_pruned[graph_pruned] = s[graph_pruned]
-            s_pruned = s_pruned.tocsr()
-            return s_pruned
+            ## Construct the retained coordinates directly instead of inserting
+            ## them into an empty CSR array (an expensive structural mutation).
+            rows, cols = graph_pruned.nonzero()
+            values = s[rows, cols]
+            if scipy.sparse.issparse(values):
+                values = values.toarray()
+            values = np.asarray(values).ravel().astype(np.float32)
+            return scipy.sparse.csr_array(
+                (values, (rows, cols)), shape=graph_pruned.shape,
+            )
 
         ## Prune all similarity matrices
         self.similarities_pruned = {
